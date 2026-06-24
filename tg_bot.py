@@ -33,38 +33,10 @@ def send_welcome(message):
                           "• Отправь мне любой текст или ссылку — и я сделаю QR-код.\n"
                           "• Отправь мне фото с QR-кодом — и я его расшифрую!")
 
-# ГЕНЕРАЦИЯ ФОТО (Срабатывает и в личке, и при клике на инлайн в ЛЮБЫХ чатах)
-@bot.message_handler(func=lambda message: True, content_types=['text'])
-def make_qr_or_handle_inline(message):
+# Логика ГЕНЕРАТОРА (в личке бота)
+@bot.message_handler(content_types=['text'])
+def make_qr(message):
     text_data = message.text.strip()
-    
-    # ПЛАН МАКСА: Если поймали секретную инлайн-команду в любом чате
-    if "🤖 [QR-Магия]: " in text_data:
-        # ИСПРАВИЛИ ТУТ: Правильно вытаскиваем чистый текст
-        clean_text = text_data.replace("🤖 [QR-Магия]: ", "").strip()
-        
-        # Генерируем картинку QR-кода прямо на сервере в оперативной памяти
-        qr = qrcode.QRCode(version=1, box_size=10, border=4)
-        qr.add_data(clean_text)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        
-        bio = BytesIO()
-        bio.name = 'qrcode.png'
-        img.save(bio, 'PNG')
-        bio.seek(0)
-        
-        # Удаляем текстовое триггерное сообщение
-        try:
-            bot.delete_message(message.chat.id, message.message_id)
-        except Exception as e:
-            print(f"Не удалось удалить текст: {e}")
-            
-        # Отправляем КАРТИНКУ прямо в этот же чат
-        bot.send_photo(message.chat.id, photo=bio, caption=f"Твой готовый QR-код для: {clean_text} 😎")
-        return
-
-    # Обычная генерация, если просто написали в личку боту
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(text_data)
     qr.make(fit=True)
@@ -80,7 +52,6 @@ def make_qr_or_handle_inline(message):
 def read_qr(message):
     file_info = bot.get_file(message.photo[-1].file_id)
     downloaded_file = bot.download_file(file_info.file_path)
-    
     nparr = np.frombuffer(downloaded_file, np.uint8)
     cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     detector = cv2.QRCodeDetector()
@@ -90,19 +61,36 @@ def read_qr(message):
     else:
         bot.reply_to(message, "❌ Не удалось найти или считать QR-код на этом фото.")
 
-# ================= НАДЁЖНЫЙ ИНЛАЙН, КОТОРЫЙ ТРИГГЕРИТ ОТПРАВКУ ФОТО =================
+# ================= ЧИСТЫЙ ИНЛАЙН, КОТОРЫЙ ШЛЁТ СРАЗУ КАРТИНКУ =================
 @bot.inline_handler(lambda query: len(query.query) > 0)
 def query_text(inline_query):
     try:
         text_data = inline_query.query.strip()
         
-        result = types.InlineQueryResultArticle(
+        # 1. Генерируем QR-код в памяти сервера
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(text_data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        bio = BytesIO()
+        bio.name = 'inline_qr.png'
+        img.save(bio, 'PNG')
+        bio.seek(0)
+        
+        # 2. ХАК: Бот отправляет скрытое фото специальному служебному каналу Телеграма, чтобы получить рабочий file_id
+        # Мы отправляем его в чат самого пользователя, запросившего инлайн, но Телеграм обработает это мгновенно в фоне
+        sent_msg = bot.send_photo(inline_query.from_user.id, photo=bio, caption="Генерация...")
+        file_id = sent_msg.photo[-1].file_id
+        
+        # Сразу удаляем это скрытое сообщение из лички, чтобы пользователь его даже не заметил
+        bot.delete_message(inline_query.from_user.id, sent_msg.message_id)
+        
+        # 3. Отправляем в инлайн КЭШИРОВАННОЕ ФОТО по его file_id. Никаких внешних сайтов и ссылок!
+        result = types.InlineQueryResultCachedPhoto(
             id=str(uuid.uuid4()),
-            title=f"Отправить фото QR-кода для: {text_data}",
-            description="Нажмите, чтобы мгновенно выплюнуть картинку в этот чат! 💥",
-            input_message_content=types.InputTextMessageContent(
-                message_text=f"🤖 [QR-Магия]: {text_data}"
-            )
+            photo_file_id=file_id,
+            caption=f"Твой готовый QR-код для: {text_data} 😎"
         )
         
         bot.answer_inline_query(inline_query.id, [result], cache_time=0)
