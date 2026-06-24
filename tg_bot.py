@@ -79,7 +79,8 @@ def make_qr(message):
 @bot.message_handler(content_types=['photo'])
 def read_qr(message):
     file_info = bot.get_file(message.photo[-1].file_id)
-    downloaded_file = bot.download_file(file_info.file_id)
+    downloaded_file = bot.download_file(file_info.file_path)  # ИСПРАВИЛИ ОПЕЧАТКУ ТУТ!
+    
     nparr = np.frombuffer(downloaded_file, np.uint8)
     cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     detector = cv2.QRCodeDetector()
@@ -95,7 +96,6 @@ def query_text(inline_query):
     try:
         text_data = inline_query.query.strip()
         
-        # Текстовая карточка, которую Telegram пропустит со 100% гарантией
         result = types.InlineQueryResultArticle(
             id=str(uuid.uuid4()),
             title=f"Отправить QR-код для: {text_data}",
