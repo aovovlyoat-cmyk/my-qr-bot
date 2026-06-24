@@ -40,10 +40,10 @@ def make_qr_or_handle_inline(message):
     
     # ПЛАН МАКСА: Если поймали секретную инлайн-команду в любом чате
     if "🤖 [QR-Магия]: " in text_data:
-        # Достаем чистый текст, который ввел пользователь
-        clean_text = text_data.split("🤖 [QR-Магия]: ")[1].strip()
+        # ИСПРАВИЛИ ТУТ: Правильно вытаскиваем чистый текст
+        clean_text = text_data.replace("🤖 [QR-Магия]: ", "").strip()
         
-        # Генерируем картинку QR-кода прямо на сервере в оперативке
+        # Генерируем картинку QR-кода прямо на сервере в оперативной памяти
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
         qr.add_data(clean_text)
         qr.make(fit=True)
@@ -54,11 +54,11 @@ def make_qr_or_handle_inline(message):
         img.save(bio, 'PNG')
         bio.seek(0)
         
-        # Пытаемся удалить текстовый костыль, чтобы в чате осталось ТОЛЬКО ФОТО
+        # Удаляем текстовое триггерное сообщение
         try:
             bot.delete_message(message.chat.id, message.message_id)
         except Exception as e:
-            print(f"Не удалось удалить текст (возможно, нет прав админа в чате): {e}")
+            print(f"Не удалось удалить текст: {e}")
             
         # Отправляем КАРТИНКУ прямо в этот же чат
         bot.send_photo(message.chat.id, photo=bio, caption=f"Твой готовый QR-код для: {clean_text} 😎")
@@ -75,7 +75,7 @@ def make_qr_or_handle_inline(message):
     bio.seek(0)
     bot.send_photo(message.chat.id, photo=bio, caption="Твой готовый QR-код! 😎")
 
-# Логика СКАНЕРА (кидаешь фото — дает ответ)
+# Логика СКАНЕРА
 @bot.message_handler(content_types=['photo'])
 def read_qr(message):
     file_info = bot.get_file(message.photo[-1].file_id)
@@ -96,11 +96,10 @@ def query_text(inline_query):
     try:
         text_data = inline_query.query.strip()
         
-        # Создаем текстовую карточку, которую Telegram пропустит со 100% гарантией
         result = types.InlineQueryResultArticle(
             id=str(uuid.uuid4()),
-            title=f"Создать QR-код для: {text_data}",
-            description="Нажми сюда, чтобы отправить готовое ФОТО QR-кода в этот чат! 🔥",
+            title=f"Отправить фото QR-кода для: {text_data}",
+            description="Нажмите, чтобы мгновенно выплюнуть картинку в этот чат! 💥",
             input_message_content=types.InputTextMessageContent(
                 message_text=f"🤖 [QR-Магия]: {text_data}"
             )
