@@ -1,3 +1,4 @@
+import os
 import telebot
 import qrcode
 import cv2
@@ -8,8 +9,9 @@ from telebot import types
 from threading import Thread
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# Твой личный токен от BotFather
-TOKEN = "8964389716:AAE5WsnbLQJX3L42BcSQcgvDx8qTU7LCt7U"
+# Безопасное получение токена из переменных окружения Render
+# Если деплоишь локально для тестов, можешь временно заменить на: TOKEN = "твой_токен"
+TOKEN = os.environ.get("BOT_TOKEN", "8964389716:AAE5WsnbLQJX3L42BcSQcgvDx8qTU7LCt7U")
 bot = telebot.TeleBot(TOKEN)
 
 # Мини-сервер для обмана Render
@@ -21,10 +23,11 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
 def run_health_server():
-    server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
+    # Render автоматически передает нужный порт. Если его нет, используем 10000
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"Мини-сервер для Render успешно запущен на порту {port}")
     server.serve_forever()
-
-print("Бот успешно запущен и готов к работе...")
 
 # Обработка команды /start
 @bot.message_handler(commands=['start'])
@@ -78,15 +81,14 @@ def query_text(inline_query):
         img.save(bio, 'PNG')
         bio.seek(0)
         
-        # 2. ХАК: Бот отправляет скрытое фото специальному служебному каналу Телеграма, чтобы получить рабочий file_id
-        # Мы отправляем его в чат самого пользователя, запросившего инлайн, но Телеграм обработает это мгновенно в фоне
+        # 2. ХАК: Бот отправляет скрытое фото, чтобы получить рабочий file_id
         sent_msg = bot.send_photo(inline_query.from_user.id, photo=bio, caption="Генерация...")
         file_id = sent_msg.photo[-1].file_id
         
-        # Сразу удаляем это скрытое сообщение из лички, чтобы пользователь его даже не заметил
+        # Сразу удаляем это скрытое сообщение из лички
         bot.delete_message(inline_query.from_user.id, sent_msg.message_id)
         
-        # 3. Отправляем в инлайн КЭШИРОВАННОЕ ФОТО по его file_id. Никаких внешних сайтов и ссылок!
+        # 3. Отправляем в инлайн КЭШИРОВАННОЕ ФОТО по его file_id
         result = types.InlineQueryResultCachedPhoto(
             id=str(uuid.uuid4()),
             photo_file_id=file_id,
@@ -98,5 +100,9 @@ def query_text(inline_query):
         print(f"Ошибка в инлайн-режиме: {e}")
 
 if __name__ == "__main__":
+    # Сначала запускаем фоновый веб-сервер для прохождения проверок Render
     Thread(target=run_health_server, daemon=True).start()
+    
+    # Затем запускаем основной цикл бота Telegram
+    print("Бот успешно запущен и готов к работе...")
     bot.infinity_polling()
