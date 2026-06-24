@@ -33,7 +33,7 @@ def send_welcome(message):
                           "• Отправь мне любой текст или ссылку — и я сделаю QR-код.\n"
                           "• Отправь мне фото с QR-кодом — и я его расшифрую!")
 
-# Логика ГЕНЕРАТОРА
+# Логика ГЕНЕРАТОРА (в личке бота)
 @bot.message_handler(content_types=['text'])
 def make_qr(message):
     text_data = message.text.strip()
@@ -61,22 +61,23 @@ def read_qr(message):
     else:
         bot.reply_to(message, "❌ Не удалось найти или считать QR-код на этом фото.")
 
-# Логика инлайн-режима
+# ================= НАСТОЯЩИЙ ИНЛАЙН С ПРЯМОЙ ОТПРАВКОЙ QR-КОДА =================
 @bot.inline_handler(lambda query: len(query.query) > 0)
 def query_text(inline_query):
     try:
         text_data = inline_query.query.strip()
-        result = types.InlineQueryResultArticle(
+        
+        # Создаем прямую ссылку на картинку QR-кода через быстрый генератор
+        qr_url = f"https://quickchart.io{text_data}&size=300"
+        
+        # Отправляем именно КАРТИНКУ (InlineQueryResultPhoto) вместо текста
+        result = types.InlineQueryResultPhoto(
             id=str(uuid.uuid4()),
-            title=f"Создать QR-код для: {text_data}",
-            input_message_content=types.InputTextMessageContent(
-                message_text=f"✨ *Генерация QR-кода*\n\nЧтобы получить QR-код для текста: `{text_data}`, нажми на кнопку ниже!",
-                parse_mode="Markdown"
-            ),
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton(text="🤖 Перейти в бота и сгенерировать", url=f"https://t.me")
-            )
+            photo_url=qr_url,
+            thumbnail_url=qr_url,
+            caption=f"Твой готовый QR-код для: {text_data} 😎"
         )
+        
         bot.answer_inline_query(inline_query.id, [result])
     except Exception as e:
         print(f"Ошибка в инлайн-режиме: {e}")
