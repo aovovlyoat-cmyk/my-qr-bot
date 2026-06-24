@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 TOKEN = "8964389716:AAE5WsnbLQJX3L42BcSQcgvDx8qTU7LCt7U"
 bot = telebot.TeleBot(TOKEN)
 
-# Мини-сервер для обмана Render (чтобы не отключал бота)
+# Мини-сервер для обмана Render
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -33,24 +33,49 @@ def send_welcome(message):
                           "• Отправь мне любой текст или ссылку — и я сделаю QR-код.\n"
                           "• Отправь мне фото с QR-кодом — и я его расшифрую!")
 
-# Логика ГЕНЕРАТОРА (в личке бота)
-@bot.message_handler(content_types=['text'])
-def make_qr(message):
+# ГЕНЕРАЦИЯ ФОТО (Срабатывает и в личке, и при клике на инлайн в ЛЮБЫХ чатах)
+@bot.message_handler(func=lambda message: True, content_types=['text'])
+def make_qr_or_handle_inline(message):
     text_data = message.text.strip()
     
+    # ПЛАН МАКСА: Если поймали секретную инлайн-команду в любом чате
+    if "🤖 [QR-Магия]: " in text_data:
+        # Достаем чистый текст, который ввел пользователь
+        clean_text = text_data.split("🤖 [QR-Магия]: ")[1].strip()
+        
+        # Генерируем картинку QR-кода прямо на сервере в оперативке
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(clean_text)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        bio = BytesIO()
+        bio.name = 'qrcode.png'
+        img.save(bio, 'PNG')
+        bio.seek(0)
+        
+        # Пытаемся удалить текстовый костыль, чтобы в чате осталось ТОЛЬКО ФОТО
+        try:
+            bot.delete_message(message.chat.id, message.message_id)
+        except Exception as e:
+            print(f"Не удалось удалить текст (возможно, нет прав админа в чате): {e}")
+            
+        # Отправляем КАРТИНКУ прямо в этот же чат
+        bot.send_photo(message.chat.id, photo=bio, caption=f"Твой готовый QR-код для: {clean_text} 😎")
+        return
+
+    # Обычная генерация, если просто написали в личку боту
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(text_data)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
-    
     bio = BytesIO()
     bio.name = 'qrcode.png'
     img.save(bio, 'PNG')
     bio.seek(0)
-    
     bot.send_photo(message.chat.id, photo=bio, caption="Твой готовый QR-код! 😎")
 
-# Логика СКАНЕРА
+# Логика СКАНЕРА (кидаешь фото — дает ответ)
 @bot.message_handler(content_types=['photo'])
 def read_qr(message):
     file_info = bot.get_file(message.photo[-1].file_id)
@@ -65,30 +90,23 @@ def read_qr(message):
     else:
         bot.reply_to(message, "❌ Не удалось найти или считать QR-код на этом фото.")
 
-# ================= НАДЁЖНЫЙ ИНЛАЙН С КНОПКОЙ ПЕРЕХОДА =================
+# ================= НАДЁЖНЫЙ ИНЛАЙН, КОТОРЫЙ ТРИГГЕРИТ ОТПРАВКУ ФОТО =================
 @bot.inline_handler(lambda query: len(query.query) > 0)
 def query_text(inline_query):
     try:
         text_data = inline_query.query.strip()
         
-        # Создаем красивую текстовую карточку с кнопкой
+        # Создаем текстовую карточку, которую Telegram пропустит со 100% гарантией
         result = types.InlineQueryResultArticle(
             id=str(uuid.uuid4()),
             title=f"Создать QR-код для: {text_data}",
-            description="Нажми, чтобы отправить карточку с кнопкой генерации! ✨",
+            description="Нажми сюда, чтобы отправить готовое ФОТО QR-кода в этот чат! 🔥",
             input_message_content=types.InputTextMessageContent(
-                message_text=f"✨ *Генерация QR-кода*\n\nЧтобы получить QR-код для текста: `{text_data}`, нажми на кнопку ниже!",
-                parse_mode="Markdown"
-            ),
-            reply_markup=types.InlineKeyboardMarkup().add(
-                types.InlineKeyboardButton(
-                    text="🤖 Перейти в бота и сгенерировать", 
-                    url=f"https://t.me"  # Ссылка на твоего бота
-                )
+                message_text=f"🤖 [QR-Магия]: {text_data}"
             )
         )
         
-        bot.answer_inline_query(inline_query.id, [result], cache_time=1)
+        bot.answer_inline_query(inline_query.id, [result], cache_time=0)
     except Exception as e:
         print(f"Ошибка в инлайн-режиме: {e}")
 
