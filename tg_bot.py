@@ -3,7 +3,6 @@ import qrcode
 import cv2
 import numpy as np
 import uuid
-import urllib.parse
 from io import BytesIO
 from telebot import types
 from threading import Thread
@@ -34,10 +33,38 @@ def send_welcome(message):
                           "• Отправь мне любой текст или ссылку — и я сделаю QR-код.\n"
                           "• Отправь мне фото с QR-кодом — и я его расшифрую!")
 
-# Логика ГЕНЕРАТОРА (в личке бота)
+# Логика ГЕНЕРАТОРА (в личке бота ИЗ ИНЛАЙНА)
 @bot.message_handler(content_types=['text'])
 def make_qr(message):
     text_data = message.text.strip()
+    
+    # ХАК: Если сообщение пришло из инлайна (начинается со спец-префикса)
+    if text_data.startswith("🤖 [QR-Генерация]: "):
+        # Вытаскиваем чистый текст для QR-кода
+        text_data = text_data.replace("🤖 [QR-Генерация]: ", "")
+        
+        # Генерируем саму картинку прямо на сервере
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(text_data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        bio = BytesIO()
+        bio.name = 'qrcode.png'
+        img.save(bio, 'PNG')
+        bio.seek(0)
+        
+        # Удаляем триггерное текстовое сообщение, чтобы не засорять чат
+        try:
+            bot.delete_message(message.chat.id, message.message_id)
+        except:
+            pass
+            
+        # Отправляем КАРТИНКУ прямо в этот чат!
+        bot.send_photo(message.chat.id, photo=bio, caption=f"Твой готовый QR-код для: {text_data} 😎")
+        return
+
+    # Обычная работа в личке
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(text_data)
     qr.make(fit=True)
@@ -53,7 +80,6 @@ def make_qr(message):
 def read_qr(message):
     file_info = bot.get_file(message.photo[-1].file_id)
     downloaded_file = bot.download_file(file_info.file_id)
-    
     nparr = np.frombuffer(downloaded_file, np.uint8)
     cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     detector = cv2.QRCodeDetector()
@@ -63,25 +89,23 @@ def read_qr(message):
     else:
         bot.reply_to(message, "❌ Не удалось найти или считать QR-код на этом фото.")
 
-# ================= НАСТОЯЩИЙ ИНЛАЙН С ОБМАНАМИ ДЛЯ ТЕЛЕГРАМА =================
+# ================= ХИТРЫЙ ИНЛАЙН С АВТО-ОТПРАВКОЙ КАРТИНКИ С СЕРВЕРА =================
 @bot.inline_handler(lambda query: len(query.query) > 0)
 def query_text(inline_query):
     try:
         text_data = inline_query.query.strip()
         
-        safe_text = urllib.parse.quote(text_data)
-        
-        # ХАК: Добавили &ext=.png в самый конец, чтобы Telegram поверил, что это прямая ссылка на файл изображения
-        qr_url = f"https://quickchart.io{safe_text}&size=300&ext=.png"
-        
-        result = types.InlineQueryResultPhoto(
+        # Текстовая карточка, которую Telegram пропустит со 100% гарантией
+        result = types.InlineQueryResultArticle(
             id=str(uuid.uuid4()),
-            photo_url=qr_url,
-            thumbnail_url=qr_url,
-            caption=f"Твой готовый QR-код для: {text_data} 😎"
+            title=f"Отправить QR-код для: {text_data}",
+            description="Нажми, чтобы мгновенно отправить картинку QR-кода в этот чат! 🔥",
+            input_message_content=types.InputTextMessageContent(
+                message_text=f"🤖 [QR-Генерация]: {text_data}"
+            )
         )
         
-        bot.answer_inline_query(inline_query.id, [result], cache_time=1)  # Сбросили внутренний кэш до 1 секунды!
+        bot.answer_inline_query(inline_query.id, [result], cache_time=1)
     except Exception as e:
         print(f"Ошибка в инлайн-режиме: {e}")
 
