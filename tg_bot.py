@@ -3,6 +3,7 @@ import qrcode
 import cv2
 import numpy as np
 import uuid
+import urllib.parse  # Добавили библиотеку для кодирования пробелов и русских букв
 from io import BytesIO
 from telebot import types
 from threading import Thread
@@ -51,7 +52,8 @@ def make_qr(message):
 @bot.message_handler(content_types=['photo'])
 def read_qr(message):
     file_info = bot.get_file(message.photo[-1].file_id)
-    downloaded_file = bot.download_file(file_info.file_path)
+    downloaded_file = bot.download_file(message.photo[-1].file_id)
+    
     nparr = np.frombuffer(downloaded_file, np.uint8)
     cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     detector = cv2.QRCodeDetector()
@@ -61,16 +63,17 @@ def read_qr(message):
     else:
         bot.reply_to(message, "❌ Не удалось найти или считать QR-код на этом фото.")
 
-# ================= НАСТОЯЩИЙ ИНЛАЙН С ПРЯМОЙ ОТПРАВКОЙ QR-КОДА =================
+# ================= НАСТОЯЩИЙ ИНЛАЙН С ИСПРАВЛЕНИЕМ ССЫЛОК =================
 @bot.inline_handler(lambda query: len(query.query) > 0)
 def query_text(inline_query):
     try:
         text_data = inline_query.query.strip()
         
-        # Создаем прямую ссылку на картинку QR-кода через быстрый генератор
-        qr_url = f"https://quickchart.io{text_data}&size=300"
+        # Безопасно кодируем текст (пробелы станут %20, русские буквы — спецкодами)
+        safe_text = urllib.parse.quote(text_data)
+        qr_url = f"https://quickchart.io{safe_text}&size=300"
         
-        # Отправляем именно КАРТИНКУ (InlineQueryResultPhoto) вместо текста
+        # Отправляем именно КАРТИНКУ
         result = types.InlineQueryResultPhoto(
             id=str(uuid.uuid4()),
             photo_url=qr_url,
